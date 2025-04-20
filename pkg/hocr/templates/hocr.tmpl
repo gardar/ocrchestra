@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="{{ if .Language }}{{ .Language }}{{ else }}unknown{{ end }}" lang="{{ if .Language }}{{ .Language }}{{ else }}unknown{{ end }}">
+<head>
+    <title>{{ if .Title }}{{ .Title }}{{ else }}Document OCR{{ end }}</title>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+    {{- range $key, $value := .Metadata }}
+    <meta name="{{ $key }}" content="{{ $value }}" />
+    {{- end }}
+    {{- if not (index .Metadata "ocr-system") }}
+    <meta name="ocr-system" content="hOCR" />
+    {{- end }}
+    {{- if not (index .Metadata "ocr-number-of-pages") }}
+    <meta name="ocr-number-of-pages" content="{{ len .Pages }}" />
+    {{- end }}
+    {{- if not (index .Metadata "ocr-langs") }}
+    <meta name="ocr-langs" content="{{ or .Language "unknown" }}" />
+    {{- end }}
+    {{- if .Description }}
+    <meta name="description" content="{{ .Description }}" />
+    {{- end }}
+</head>
+<body>
+    {{- range $pageIndex, $page := .Pages }}
+    <div class='{{ $page.Class }}' id='{{ $page.ID }}'{{ if $page.Lang }} lang='{{ $page.Lang }}'{{ end }} title='bbox {{ $page.BBox.X1 }} {{ $page.BBox.Y1 }} {{ $page.BBox.X2 }} {{ $page.BBox.Y2 }}{{ if $page.ImageName }}; image {{ $page.ImageName }}{{ end }}{{ if gt $page.PageNumber 0 }}; ppageno {{ $page.PageNumber }}{{ end }}'>
+        {{- range $areaIndex, $area := $page.Areas }}
+        <div class='{{ $area.Class }}' id='{{ $area.ID }}'{{ if $area.Lang }} lang='{{ $area.Lang }}'{{ end }} title='bbox {{ $area.BBox.X1 }} {{ $area.BBox.Y1 }} {{ $area.BBox.X2 }} {{ $area.BBox.Y2 }}'>
+            {{- range $paragraphIndex, $paragraph := $area.Paragraphs }}
+            <p class='{{ $paragraph.Class }}' id='{{ $paragraph.ID }}'{{ if $paragraph.Lang }} lang='{{ $paragraph.Lang }}'{{ end }} title='bbox {{ $paragraph.BBox.X1 }} {{ $paragraph.BBox.Y1 }} {{ $paragraph.BBox.X2 }} {{ $paragraph.BBox.Y2 }}'>
+                {{- range $lineIndex, $line := $paragraph.Lines }}
+                <span class='{{ $line.Class }}' id='{{ $line.ID }}'{{ if $line.Lang }} lang='{{ $line.Lang }}'{{ end }} title='bbox {{ $line.BBox.X1 }} {{ $line.BBox.Y1 }} {{ $line.BBox.X2 }} {{ $line.BBox.Y2 }}{{ if $line.Baseline }}; baseline {{ $line.Baseline }}{{ end }}'>{{ range $wordIndex, $word := $line.Words }}<span class='{{ $word.Class }}' id='{{ $word.ID }}'{{ if $word.Lang }} lang='{{ $word.Lang }}'{{ end }} title='bbox {{ $word.BBox.X1 }} {{ $word.BBox.Y1 }} {{ $word.BBox.X2 }} {{ $word.BBox.Y2 }}{{ if ne $word.Confidence 0.0 }}; x_wconf {{ printf "%.0f" $word.Confidence }}{{ end }}'>{{ $word.Text }}</span>{{ end }}</span>
+                {{- end }}
+                
+                {{- if $paragraph.Words }}
+                <!-- Direct words in paragraph (if no lines) -->
+                {{- range $wordIndex, $word := $paragraph.Words }}
+                <span class='{{ $word.Class }}' id='{{ $word.ID }}'{{ if $word.Lang }} lang='{{ $word.Lang }}'{{ end }} title='bbox {{ $word.BBox.X1 }} {{ $word.BBox.Y1 }} {{ $word.BBox.X2 }} {{ $word.BBox.Y2 }}{{ if ne $word.Confidence 0.0 }}; x_wconf {{ printf "%.0f" $word.Confidence }}{{ end }}'>{{ $word.Text }}</span>
+                {{- end }}
+                {{- end }}
+            </p>
+            {{- end }}
+
+            {{- range $lineIndex, $line := $area.Lines }}
+            <span class='{{ $line.Class }}' id='{{ $line.ID }}'{{ if $line.Lang }} lang='{{ $line.Lang }}'{{ end }} title='bbox {{ $line.BBox.X1 }} {{ $line.BBox.Y1 }} {{ $line.BBox.X2 }} {{ $line.BBox.Y2 }}{{ if $line.Baseline }}; baseline {{ $line.Baseline }}{{ end }}'>{{ range $wordIndex, $word := $line.Words }}<span class='{{ $word.Class }}' id='{{ $word.ID }}'{{ if $word.Lang }} lang='{{ $word.Lang }}'{{ end }} title='bbox {{ $word.BBox.X1 }} {{ $word.BBox.Y1 }} {{ $word.BBox.X2 }} {{ $word.BBox.Y2 }}{{ if ne $word.Confidence 0.0 }}; x_wconf {{ printf "%.0f" $word.Confidence }}{{ end }}'>{{ $word.Text }}</span>{{ end }}</span>
+            {{- end }}
+            
+            {{- if $area.Words }}
+            <!-- Direct words in area (if no lines) -->
+            {{- range $wordIndex, $word := $area.Words }}
+            <span class='{{ $word.Class }}' id='{{ $word.ID }}'{{ if $word.Lang }} lang='{{ $word.Lang }}'{{ end }} title='bbox {{ $word.BBox.X1 }} {{ $word.BBox.Y1 }} {{ $word.BBox.X2 }} {{ $word.BBox.Y2 }}{{ if ne $word.Confidence 0.0 }}; x_wconf {{ printf "%.0f" $word.Confidence }}{{ end }}'>{{ $word.Text }}</span>
+            {{- end }}
+            {{- end }}
+        </div>
+        {{- end }}
+
+
+
+        {{- range $paragraphIndex, $paragraph := $page.Paragraphs }}
+        <p class='{{ $paragraph.Class }}' id='{{ $paragraph.ID }}'{{ if $paragraph.Lang }} lang='{{ $paragraph.Lang }}'{{ end }} title='bbox {{ $paragraph.BBox.X1 }} {{ $paragraph.BBox.Y1 }} {{ $paragraph.BBox.X2 }} {{ $paragraph.BBox.Y2 }}'>
+            {{- range $lineIndex, $line := $paragraph.Lines }}
+            <span class='{{ $line.Class }}' id='{{ $line.ID }}'{{ if $line.Lang }} lang='{{ $line.Lang }}'{{ end }} title='bbox {{ $line.BBox.X1 }} {{ $line.BBox.Y1 }} {{ $line.BBox.X2 }} {{ $line.BBox.Y2 }}{{ if $line.Baseline }}; baseline {{ $line.Baseline }}{{ end }}'>{{ range $wordIndex, $word := $line.Words }}<span class='{{ $word.Class }}' id='{{ $word.ID }}'{{ if $word.Lang }} lang='{{ $word.Lang }}'{{ end }} title='bbox {{ $word.BBox.X1 }} {{ $word.BBox.Y1 }} {{ $word.BBox.X2 }} {{ $word.BBox.Y2 }}{{ if ne $word.Confidence 0.0 }}; x_wconf {{ printf "%.0f" $word.Confidence }}{{ end }}'>{{ $word.Text }}</span>{{ end }}</span>
+            {{- end }}
+            
+            {{- if $paragraph.Words }}
+            <!-- Direct words in paragraph (if no lines) -->
+            {{- range $wordIndex, $word := $paragraph.Words }}
+            <span class='{{ $word.Class }}' id='{{ $word.ID }}'{{ if $word.Lang }} lang='{{ $word.Lang }}'{{ end }} title='bbox {{ $word.BBox.X1 }} {{ $word.BBox.Y1 }} {{ $word.BBox.X2 }} {{ $word.BBox.Y2 }}{{ if ne $word.Confidence 0.0 }}; x_wconf {{ printf "%.0f" $word.Confidence }}{{ end }}'>{{ $word.Text }}</span>
+            {{- end }}
+            {{- end }}
+        </p>
+        {{- end }}
+        
+        {{- if $page.Lines }}
+        <!-- Direct lines in page (if no areas, blocks, or paragraphs) -->
+        {{- range $lineIndex, $line := $page.Lines }}
+        <span class='{{ $line.Class }}' id='{{ $line.ID }}'{{ if $line.Lang }} lang='{{ $line.Lang }}'{{ end }} title='bbox {{ $line.BBox.X1 }} {{ $line.BBox.Y1 }} {{ $line.BBox.X2 }} {{ $line.BBox.Y2 }}{{ if $line.Baseline }}; baseline {{ $line.Baseline }}{{ end }}'>{{ range $wordIndex, $word := $line.Words }}<span class='{{ $word.Class }}' id='{{ $word.ID }}'{{ if $word.Lang }} lang='{{ $word.Lang }}'{{ end }} title='bbox {{ $word.BBox.X1 }} {{ $word.BBox.Y1 }} {{ $word.BBox.X2 }} {{ $word.BBox.Y2 }}{{ if ne $word.Confidence 0.0 }}; x_wconf {{ printf "%.0f" $word.Confidence }}{{ end }}'>{{ $word.Text }}</span>{{ end }}</span>
+        {{- end }}
+        {{- end }}
+    </div>
+    {{- end }}
+</body>
+</html>
