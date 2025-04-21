@@ -13,7 +13,7 @@
 //
 // Usage:
 //
-//	gdocai -config config.yaml -pdf input.pdf [options]
+//	gdocai -config config.yml -pdf input.pdf [options]
 //
 // Required flags:
 //
@@ -42,8 +42,8 @@
 // Example:
 //
 //	export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
-//	gdocai -config config.yaml -pdf document.pdf -text document.txt -hocr document.hocr -output document_ocr.pdf
-//	gdocai -config config.yaml -pdfs page1.pdf,page2.pdf,page3.pdf -output combo_document_ocr.pdf
+//	gdocai -config config.yml -pdf document.pdf -text document.txt -hocr document.hocr -output document_ocr.pdf
+//	gdocai -config config.yml -pdfs page1.pdf,page2.pdf,page3.pdf -output combo_document_ocr.pdf
 
 package main
 

@@ -1,21 +1,19 @@
 // Package gdocai provides a comprehensive integration with Google Document AI for document processing.
 //
-// This package's primary purpose is to process PDFs with Google Document AI and create searchable documents
-// by precisely overlaying OCR text at the exact position of each recognized word. The package handles the
-// complete workflow from raw PDF to a fully searchable document with the OCR text layer correctly positioned.
-//
-// The package converts Google Document AI's proprietary format into standard formats (plain text and HOCR),
-// while maintaining the positional data needed to reconstruct document layout. It also extracts form fields
-// from documents with form elements.
+// This package processes PDFs with Google Document AI and creates searchable documents
+// by precisely overlaying OCR text at the exact position of each recognized word. It handles the
+// complete workflow from raw PDF to a fully searchable document with OCR text correctly positioned.
 //
 // Key Features:
 //
 // - Process PDFs with Google Document AI to extract text and structural information
 // - Create searchable PDFs with transparent OCR text overlaid at precise positions
 // - Extract form fields from documents with form elements
-// - Convert Document AI output to standard HOCR format for interoperability
+// - Generate HOCR data for advanced OCR workflows
+// - Convert Document AI output to standard formats (plain text and HOCR)
 // - Access the full hierarchical structure of document content (blocks, paragraphs, lines, words)
 // - Extract page images for further processing
+// - Create searchable and selectable PDFs
 //
 // Main Functions:
 //
@@ -24,13 +22,13 @@
 // - DocumentHOCR: Processes a document and returns the structured data plus hOCR HTML
 // - DocumentHOCRFromPages: Processes multiple pages as a single document and returns the hOCR HTML
 // - ExtractFormFields: Gets form fields from the document as a map
+// - ExtractImageFromPage: Extracts the image data from a document page
 //
 // Usage Requirements:
 //
 // - Google Cloud project with Document AI API enabled
 // - Document AI processor configured for OCR
 // - Authentication via GOOGLE_APPLICATION_CREDENTIALS environment variable
-//
 package gdocai
 
 import (

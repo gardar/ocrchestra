@@ -4,17 +4,22 @@
 // by assembling new PDFs from images with an OCR text layer. It works with hOCR data
 // (either raw HTML or parsed structures) to position text accurately within the PDF.
 //
+// The resulting PDFs have OCR text precisely positioned over the original document. This text is:
+// - Fully searchable
+// - Selectable with mouse drag operations
+// - Can be toggled on/off in compatible PDF readers, allowing users to view just the OCR layer
+//
 // Key Features:
 //
 // - Apply OCR text layers to existing PDFs, making them searchable and text selectable
 // - Create new PDFs from images with OCR text layers
 // - Detect existing OCR layers to prevent duplication
+// - Position text with precise bounding boxes matching the original content
 //
 // Main Functions:
 //
 // - ApplyOCR: Adds OCR text layer to an existing PDF
 // - AssembleWithOCR: Creates a new PDF from images with OCR text layer
-//
 package pdfocr
 
 import (
