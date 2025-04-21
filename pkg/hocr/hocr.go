@@ -10,6 +10,9 @@
 //
 // The package implements the hierarchical structure defined in the hOCR format:
 // Document → Pages → Areas → Paragraphs → Lines → Words, with metadata at each level.
+// Each element has positioning data and optional metadata, including:
+// - Bounding boxes and coordinates for all elements
+// - Support for language, confidence values, and other hOCR attributes
 //
 // Key Types:
 //
