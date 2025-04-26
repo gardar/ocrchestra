@@ -9,6 +9,7 @@
 // - Process PDFs with Google Document AI to extract text and structural information
 // - Create searchable PDFs with transparent OCR text overlaid at precise positions
 // - Extract form fields from documents with form elements
+// - Extract fields from custom extractors with full support for nested hierarchies
 // - Generate HOCR data for advanced OCR workflows
 // - Convert Document AI output to standard formats (plain text and HOCR)
 // - Access the full hierarchical structure of document content (blocks, paragraphs, lines, words)
@@ -22,6 +23,7 @@
 // - DocumentHOCR: Processes a document and returns the structured data plus hOCR HTML
 // - DocumentHOCRFromPages: Processes multiple pages as a single document and returns the hOCR HTML
 // - ExtractFormFields: Gets form fields from the document as a map
+// - ExtractCustomExtractorFields: Gets custom extractor fields from the document as a nested map
 // - ExtractImageFromPage: Extracts the image data from a document page
 //
 // Usage Requirements:
@@ -133,6 +135,9 @@ func DocumentHOCRFromPages(ctx context.Context, pagePdfBytesList [][]byte, cfg *
 			HTML:    hocrHTML,
 		},
 		FormFields: &FormData{
+			Fields: make(map[string]interface{}),
+		},
+		CustomExtractorFields: &CustomExtractorData{
 			Fields: make(map[string]interface{}),
 		},
 		// Other fields as needed

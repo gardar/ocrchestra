@@ -56,7 +56,7 @@ The `gdocai` tool processes documents with Google Document AI and applies OCR to
 
 Key features:
 - Process single PDFs or multiple PDF files as individual pages
-- Extract OCR text, form fields, and hOCR data
+- Extract OCR text, form fields, custom extractor fields, and hOCR data
 - Create searchable PDFs by applying OCR text layers
 - Save page images from processed documents
 - Debug Document AI processing with detailed JSON output
@@ -72,8 +72,8 @@ gdocai -config config.yml -pdf document.pdf -output searchable.pdf
 # Process multiple PDFs as separate pages in a single document
 gdocai -config config.yml -pdfs "page1.pdf,page2.pdf,page3.pdf" -output combined.pdf
 
-# Extract OCR text, hOCR, and form fields
-gdocai -config config.yml -pdf form.pdf -text form.txt -hocr form.hocr -form-fields form.json
+# Extract OCR text, hOCR, form fields, and custom extractor fields
+gdocai -config config.yml -pdf form.pdf -text form.txt -hocr form.hocr -form-fields form.json -extractor-fields extractor.json
 
 # Extract images from each page
 gdocai -config config.yml -pdf document.pdf -images ./pages/
@@ -123,13 +123,14 @@ The `gdocai` package provides comprehensive integration with Google Document AI 
 
 - Process PDFs with Google Document AI to extract text and structural information
 - Extract form fields from documents with form elements
+- Extract custom fields from custom extractors with support for nested hierarchies
 - Generate hOCR data for advanced OCR workflows
 - Convert Document AI output to standard formats (plain text and hOCR)
 - Access the full hierarchical structure of document content (blocks, paragraphs, lines, words)
 - Extract page images for further processing
 - Create searchable and selectable PDFs
 
-Main functions include `DocumentHOCR` for processing complete documents, `DocumentHOCRFromPages` for processing multiple PDFs as a single document, and utilities for extracting form fields and page images.
+Main functions include `DocumentHOCR` for processing complete documents, `DocumentHOCRFromPages` for processing multiple PDFs as a single document, and utilities for extracting form fields, custom extractor fields, and page images.
 
 > **Note**: The structured document model in `gdocai` was initially inspired by Google's Document AI toolbox for Python. While the original implementation generated hOCR directly from this structured document, OCRchestra has evolved to feature a separate, standalone `hocr` package with its own data structures, parser, and renderer. This architectural change allows the `hocr` package to work independently from `gdocai`, providing greater flexibility for various OCR workflows.
 #### Example
