@@ -1,7 +1,8 @@
 // gdocai is a command-line tool for processing documents with Google Document AI and applying the OCR to the documents.
 //
-// This tool extracts text, form fields, and hOCR data from PDFs using Google's Document AI API.
-// It supports applying the OCR text from Google's Document AI to create searchable PDFs and can optionally extract a hOCR document, form field data and text.
+// This tool extracts text, form fields, custom extractor fields, and hOCR data from PDFs using Google's Document AI API.
+// It supports applying the OCR text from Google's Document AI to create searchable PDFs and can optionally extract a hOCR document,
+// form field data, custom extractor data, and text.
 //
 // Configuration:
 //
@@ -23,11 +24,12 @@
 //
 // Output options (at least one required):
 //
-//	-text string        Path to save OCR text output
-//	-hocr string        Path to save HOCR output
-//	-form-fields string Path to save form fields JSON
-//	-images string      Directory to save page images
-//	-output string      Path to save the PDF with OCR applied
+//	-text string             Path to save OCR text output
+//	-hocr string             Path to save HOCR output
+//	-form-fields string      Path to save form fields JSON
+//	-extractor-fields string Path to save custom extractor fields JSON
+//	-images string           Directory to save page images
+//	-output string           Path to save the PDF with OCR applied
 //
 // Debug options:
 //
@@ -44,6 +46,7 @@
 //	export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
 //	gdocai -config config.yml -pdf document.pdf -text document.txt -hocr document.hocr -output document_ocr.pdf
 //	gdocai -config config.yml -pdfs page1.pdf,page2.pdf,page3.pdf -output combo_document_ocr.pdf
+//	gdocai -config config.yml -pdf form.pdf -form-fields fields.json -extractor-fields entities.json
 
 package main
 
@@ -97,6 +100,7 @@ func main() {
 	debugAPIPath := flag.String("debug-api", "", "Path to save API response as JSON for debugging purposes")
 	debugDocPath := flag.String("debug-doc", "", "Path to save transformed Document object as JSON for debugging purposes")
 	formFieldsPath := flag.String("form-fields", "", "Path to save form fields JSON")
+	extractorFieldsPath := flag.String("extractor-fields", "", "Path to save custom extractor fields JSON")
 	imagesDir := flag.String("images", "", "Directory to save images returned by Document AI API for each processed page")
 	pdfOcrPath := flag.String("output", "", "Path to save the PDF with OCR applied")
 
@@ -138,6 +142,7 @@ func main() {
 	validateFlag("debug-api", *debugAPIPath)
 	validateFlag("debug-doc", *debugDocPath)
 	validateFlag("form-fields", *formFieldsPath)
+	validateFlag("extractor-fields", *extractorFieldsPath)
 	validateFlag("images", *imagesDir)
 	validateFlag("output", *pdfOcrPath)
 
@@ -150,8 +155,8 @@ func main() {
 	// Check if at least one output flag is provided
 	hasOutputFlag := providedFlags["text"] || providedFlags["hocr"] ||
 		providedFlags["debug-api"] || providedFlags["debug-doc"] ||
-		providedFlags["form-fields"] || providedFlags["images"] ||
-		providedFlags["output"]
+		providedFlags["form-fields"] || providedFlags["extractor-fields"] ||
+		providedFlags["images"] || providedFlags["output"]
 
 	if !hasOutputFlag {
 		fmt.Fprintln(os.Stderr, "Error: At least one output flag must be provided (-text, -hocr, -debug-api, -debug-doc, -form-fields, -images, or -output)")
@@ -278,6 +283,18 @@ func main() {
 			log.Fatalf("Failed to write form fields JSON: %v", err)
 		}
 		fmt.Println("Form fields JSON saved to:", *formFieldsPath)
+	}
+
+	// Write custom extractor fields JSON if flag is provided.
+	if *extractorFieldsPath != "" {
+		extractorFieldsJSON, err := gdocai.ToJSON(doc.CustomExtractorFields.Fields)
+		if err != nil {
+			log.Fatalf("Failed to convert custom extractor fields to JSON: %v", err)
+		}
+		if err := os.WriteFile(*extractorFieldsPath, []byte(extractorFieldsJSON), 0644); err != nil {
+			log.Fatalf("Failed to write custom extractor fields JSON: %v", err)
+		}
+		fmt.Println("Custom extractor fields JSON saved to:", *extractorFieldsPath)
 	}
 
 	// Extract and write out images for each page if flag is provided.

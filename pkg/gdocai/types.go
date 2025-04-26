@@ -8,11 +8,12 @@ import (
 // Document represents the primary result of OCR processing
 // It composes all the different components together
 type Document struct {
-	Raw        *RawDocument        // Original Document AI response
-	Structured *StructuredDocument // Processed document structure
-	Text       *TextContent        // Full text content
-	Hocr       *HocrContent        // hOCR representation
-	FormFields *FormData           // Extracted form fields
+	Raw                   *RawDocument         // Original Document AI response
+	Structured            *StructuredDocument  // Processed document structure
+	Text                  *TextContent         // Full text content
+	Hocr                  *HocrContent         // hOCR representation
+	FormFields            *FormData            // Extracted form fields
+	CustomExtractorFields *CustomExtractorData // Extracted custom extractor fields
 }
 
 // RawDocument is a thin wrapper around the Google Document AI response
@@ -92,4 +93,9 @@ type FormField struct {
 	DocumentText     string                                // Source document text
 	FieldName        string                                // Extracted field name
 	FieldValue       string                                // Extracted field value
+}
+
+// CustomExtractorData contains extracted entities from custom extractors
+type CustomExtractorData struct {
+	Fields map[string]interface{} // Map of entity types to values
 }

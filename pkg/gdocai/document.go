@@ -15,6 +15,9 @@ func DocumentFromProto(doc *documentaipb.Document) *Document {
 	// Extract form fields
 	formFields := ExtractFormFields(doc)
 
+	// Extract custom extractor fields
+	customExtractorFields := ExtractCustomExtractorFields(doc)
+
 	// Create the structured document with pages
 	structuredDoc := &StructuredDocument{
 		Pages: createPagesFromProtoDoc(doc),
@@ -28,6 +31,11 @@ func DocumentFromProto(doc *documentaipb.Document) *Document {
 	// Create form data wrapper
 	formData := &FormData{
 		Fields: formFields,
+	}
+
+	// Create custom extractor data wrapper
+	customExtractorData := &CustomExtractorData{
+		Fields: customExtractorFields,
 	}
 
 	// Create text content wrapper
@@ -46,11 +54,12 @@ func DocumentFromProto(doc *documentaipb.Document) *Document {
 
 	// Assemble the full document
 	return &Document{
-		Raw:        rawDoc,
-		Structured: structuredDoc,
-		Text:       textContent,
-		Hocr:       hocrContent,
-		FormFields: formData,
+		Raw:                   rawDoc,
+		Structured:            structuredDoc,
+		Text:                  textContent,
+		Hocr:                  hocrContent,
+		FormFields:            formData,
+		CustomExtractorFields: customExtractorData,
 	}
 }
 
