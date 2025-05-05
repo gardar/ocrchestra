@@ -61,7 +61,25 @@ Key features:
 - Save page images from processed documents
 - Debug Document AI processing with detailed JSON output
 
-The tool requires a YAML configuration file with Google Document AI settings and uses the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for authentication.
+The tool can be configured using either a YAML configuration file or environment variables, and uses the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for authentication.
+
+#### Configuration Options
+
+**YAML Configuration** (via -config flag):
+```yaml
+project_id: "your-gcp-project-id"
+location: "us"
+processor_id: "your-processor-id"
+```
+
+**Environment Variables:**
+```bash
+GDOCAI_PROJECT_ID=your-gcp-project-id
+GDOCAI_LOCATION=us
+GDOCAI_PROCESSOR_ID=your-processor-id
+```
+
+If both config file and environment variables are provided, values from the config file take precedence.
 
 #### Placeholder substitution
 
@@ -78,11 +96,20 @@ You can inject extracted fields into your output filenames. Supported syntax:
 
 #### Example
 ```bash
-# Process a single PDF and create a searchable version
+# Process a single PDF and create a searchable version (using YAML config)
 gdocai -config config.yml -pdf document.pdf -output searchable.pdf
+
+# Process a single PDF using environment variables instead
+export GDOCAI_PROJECT_ID=your-project-id
+export GDOCAI_LOCATION=us
+export GDOCAI_PROCESSOR_ID=your-processor-id
+gdocai -pdf document.pdf -output searchable.pdf
 
 # Process multiple PDFs as separate pages in a single document
 gdocai -config config.yml -pdfs "page1.pdf,page2.pdf,page3.pdf" -output combined.pdf
+
+# One-liner with environment variables (useful in containers)
+GDOCAI_PROJECT_ID=your-project GDOCAI_LOCATION=us GDOCAI_PROCESSOR_ID=your-processor gdocai -pdf invoice.pdf -output "invoice-@{invoice_number:unknown}.pdf"
 
 # Use extracted fields in the output PDF name
 gdocai -config cfg.yml -pdf invoice.pdf -output "invoice-@{invoice_number:unknown}-@{date}.pdf"
@@ -95,13 +122,6 @@ gdocai -config config.yml -pdf document.pdf -images ./pages/
 
 # Debug the Document AI processing
 gdocai -config config.yml -pdf document.pdf -debug-api api_response.json -debug-doc document_structure.json
-```
-
-Configuration (config.yml):
-```yaml
-project_id: "your-gcp-project-id"
-location: "us"
-processor_id: "your-processor-id"
 ```
 
 ### pdfocr
