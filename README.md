@@ -57,12 +57,24 @@ The `gdocai` tool processes documents with Google Document AI and applies OCR to
 Key features:
 - Process single PDFs or multiple PDF files as individual pages
 - Extract OCR text, form fields, custom extractor fields, and hOCR data
-- Create searchable PDFs by applying OCR text layers
+- Create searchable PDFs by applying OCR text layers and optionally use extracted fields in the PDF name
 - Save page images from processed documents
 - Debug Document AI processing with detailed JSON output
 
 The tool requires a YAML configuration file with Google Document AI settings and uses the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for authentication.
 
+#### Placeholder substitution
+
+You can inject extracted fields into your output filenames. Supported syntax:
+
+- `@{field_name}`
+  Auto-detect source (form vs. custom extractor).
+- `@{field_name:default_value}`
+  As above, but if no value is found, uses `default_value`.
+- `@{form_field.field_name}`
+  Force use of a form-extracted field.
+- `@{extractor_field.field_name}`
+  Force use of a custom-extractor field.
 
 #### Example
 ```bash
@@ -71,6 +83,9 @@ gdocai -config config.yml -pdf document.pdf -output searchable.pdf
 
 # Process multiple PDFs as separate pages in a single document
 gdocai -config config.yml -pdfs "page1.pdf,page2.pdf,page3.pdf" -output combined.pdf
+
+# Use extracted fields in the output PDF name
+gdocai -config cfg.yml -pdf invoice.pdf -output "invoice-@{invoice_number:unknown}-@{date}.pdf"
 
 # Extract OCR text, hOCR, form fields, and custom extractor fields
 gdocai -config config.yml -pdf form.pdf -text form.txt -hocr form.hocr -form-fields form.json -extractor-fields extractor.json
