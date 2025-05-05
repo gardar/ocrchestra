@@ -31,6 +31,39 @@
 //	-images string           Directory to save page images
 //	-output string           Path to save the PDF with OCR applied
 //
+// Field placeholder support in output path:
+//
+//	The -output flag supports placeholders that use extracted field values from the document.
+//	Format:
+//	  @{field_name} - Use the value of field_name
+//	  @{field_name:default_value} - Set default value if field is not detected
+//	  @{field_name} or @{field_name:default_value} - Auto-detect source
+//	  @{form_field.field_name} - Explicitly use form fields
+//	  @{extractor_field.field_name} - Explicitly use custom extractor fields
+//
+//	Examples:
+//	  -output "invoice-@{invoice_number:unknown}-@{date}.pdf"
+//	  -output "client-@{form_field.client_name}-@{extractor_field.document_id}.pdf"
+//
+//	Field Resolution Order:
+//	  1. If a field exists in both sources, a warning is shown and form fields take precedence
+//	  2. If not found in the primary source, the other source is checked
+//	  3. If still not found, the default value is used
+//
+//	Nested fields can be accessed with dot notation: @{address.city}
+//
+//	Filename Sanitization:
+//	  All extracted field values used in output filenames are automatically sanitized to ensure
+//	  they're compatible with filesystems. This includes:
+//	    - Converting to lowercase
+//	    - Removing path traversal components
+//	    - Converting invalid filename characters to underscores
+//	    - Handling Windows reserved names
+//	    - Truncating overly long filenames
+//	    - Removing problematic leading/trailing characters
+//	    - Replacing control characters
+//	    - Providing a default name if empty after sanitization
+//
 // Debug options:
 //
 //	-debug-api string   Path to save raw API response as JSON
@@ -45,6 +78,7 @@
 //
 //	export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
 //	gdocai -config config.yml -pdf document.pdf -text document.txt -hocr document.hocr -output document_ocr.pdf
+//	gdocai -config config.yml -pdf invoice.pdf -output "invoice-@{number:unknown}-@{client}.pdf"
 //	gdocai -config config.yml -pdfs page1.pdf,page2.pdf,page3.pdf -output combo_document_ocr.pdf
 //	gdocai -config config.yml -pdf form.pdf -form-fields fields.json -extractor-fields entities.json
 
@@ -57,8 +91,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/anyascii/go"
 	"gopkg.in/yaml.v3"
 
 	"github.com/gardar/ocrchestra/pkg/gdocai"
@@ -69,6 +106,225 @@ type yamlConfig struct {
 	ProjectID   string `yaml:"project_id"`
 	Location    string `yaml:"location"`
 	ProcessorID string `yaml:"processor_id"`
+}
+
+// PlaceholderData holds data available for placeholder substitution
+type PlaceholderData struct {
+	FormFields            map[string]interface{}
+	CustomExtractorFields map[string]interface{}
+}
+
+// processPlaceholders takes a string with placeholders in the format:
+// "@{field_name}" or "@{field_name:default_value}" - Uses prioritization rules
+// "@{form_field.field_name}" - Explicitly use form fields
+// "@{extractor_field.field_name}" - Explicitly use custom extractor fields
+//
+// It searches for values according to the specified source or using the
+// prioritization rules, and if not found, uses the provided default value.
+func processPlaceholders(inputStr string, data *PlaceholderData) (string, error) {
+	// Regular expression to match placeholder patterns with optional source prefix and default value
+	re := regexp.MustCompile(`@\{(?:(form_field|extractor_field)\.)?([^:}]+)(?::([^}]*))?\}`)
+
+	result := re.ReplaceAllStringFunc(inputStr, func(match string) string {
+		// Extract source, field name and default value from the match
+		submatches := re.FindStringSubmatch(match)
+
+		source := ""
+		fieldName := ""
+		defaultValue := ""
+
+		if len(submatches) > 1 {
+			source = submatches[1] // This will be "form_field", "extractor_field", or "" (for auto)
+		}
+		if len(submatches) > 2 {
+			fieldName = strings.TrimSpace(submatches[2])
+		}
+		if len(submatches) > 3 && submatches[3] != "" {
+			defaultValue = submatches[3]
+		}
+
+		// If explicit source is specified, only check that source
+		if source == "form_field" {
+			if value := lookupFieldValue(fieldName, data.FormFields); value != "" {
+				return value
+			}
+			return defaultValue
+		} else if source == "extractor_field" {
+			if value := lookupFieldValue(fieldName, data.CustomExtractorFields); value != "" {
+				return value
+			}
+			return defaultValue
+		}
+
+		// No explicit source, use prioritization rules:
+		// 1. Check if exists in both - if so, log a warning and use form fields
+		formValue := lookupFieldValue(fieldName, data.FormFields)
+		customValue := lookupFieldValue(fieldName, data.CustomExtractorFields)
+
+		if formValue != "" && customValue != "" {
+			fmt.Printf("Warning: Field '%s' found in both form fields and custom extractor fields. Using form field value.\n", fieldName)
+			return formValue
+		}
+
+		// 2. Check form fields first
+		if formValue != "" {
+			return formValue
+		}
+
+		// 3. Check custom extractor fields
+		if customValue != "" {
+			return customValue
+		}
+
+		// 4. If still not found, use default value
+		return defaultValue
+	})
+
+	return result, nil
+}
+
+// lookupFieldValue attempts to find a field value in a map, potentially
+// navigating nested maps using dot notation (e.g., "address.city")
+func lookupFieldValue(fieldPath string, data map[string]interface{}) string {
+	// Handle dot notation for nested fields
+	parts := strings.Split(fieldPath, ".")
+
+	// Start with the root data
+	var current interface{} = data
+
+	// Navigate through the parts of the path
+	for _, part := range parts {
+		// Check if current is a map
+		if currentMap, ok := current.(map[string]interface{}); ok {
+			var exists bool
+			current, exists = currentMap[part]
+			if !exists {
+				return "" // Field not found
+			}
+		} else {
+			return "" // Not a map, can't go deeper
+		}
+	}
+
+	// Convert the final value to string
+	switch v := current.(type) {
+	case string:
+		return v
+	case []string:
+		if len(v) > 0 {
+			return v[0]
+		}
+		return ""
+	case int, int64, float64:
+		return fmt.Sprintf("%v", v)
+	case bool:
+		return fmt.Sprintf("%v", v)
+	case map[string]interface{}:
+		// If it's a map with a special _value key, use that
+		if value, ok := v["_value"].(string); ok {
+			return value
+		}
+		return "" // Can't convert a map to string
+	default:
+		// Try a generic string conversion
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// sanitizeFilename ensures a string can be safely used as a filename
+// by transliterating Unicode characters to ASCII, enforcing lowercase,
+// removing path traversal components, and replacing invalid characters
+func sanitizeFilename(filename string) string {
+	// If filename is empty, return a default name
+	if strings.TrimSpace(filename) == "" {
+		return "unnamed"
+	}
+
+	// Transliterate Unicode characters to ASCII equivalents
+	filename = anyascii.Transliterate(filename)
+
+	// Convert to lowercase
+	filename = strings.ToLower(filename)
+
+	// First remove any path traversal components
+	// This is explicit even though we also handle slashes in the next step
+	filename = strings.ReplaceAll(filename, "../", "")
+	filename = strings.ReplaceAll(filename, "..\\", "")
+
+	// Replace control characters (ASCII 0-31) and other problematic characters with underscores
+	controlChars := regexp.MustCompile(`[\x00-\x1F\x7F<>:"/\\|?*]`)
+	sanitized := controlChars.ReplaceAllString(filename, "_")
+
+	// Collapse multiple underscores into one
+	multipleUnderscores := regexp.MustCompile(`_+`)
+	sanitized = multipleUnderscores.ReplaceAllString(sanitized, "_")
+
+	// Trim leading/trailing underscores, spaces, and periods
+	sanitized = strings.Trim(sanitized, "_ .")
+
+	// Handle Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+	// We'll add an underscore prefix to any reserved name
+	reservedNames := map[string]bool{
+		"con": true, "prn": true, "aux": true, "nul": true,
+		"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
+		"com6": true, "com7": true, "com8": true, "com9": true,
+		"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true,
+		"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+	}
+
+	// Check if the name (without extension) is reserved
+	// First separate filename and extension
+	ext := filepath.Ext(sanitized)
+	baseName := strings.TrimSuffix(sanitized, ext)
+
+	// Check if base is a reserved name
+	if reservedNames[baseName] {
+		baseName = "_" + baseName
+		sanitized = baseName + ext
+	}
+
+	// Ensure the name isn't empty after all sanitization
+	if sanitized == "" {
+		sanitized = "unnamed"
+	}
+
+	// Truncate if too long (safe limit for most filesystems)
+	maxLength := 240 // Leave some room for extensions
+	if len(sanitized) > maxLength {
+		// If we have an extension, preserve it
+		if ext != "" {
+			// Truncate the base name part, preserving the extension
+			baseName = sanitized[:maxLength-len(ext)]
+			sanitized = baseName + ext
+		} else {
+			sanitized = sanitized[:maxLength]
+		}
+
+		// Make sure we don't truncate in the middle of a utf-8 character
+		for !utf8.ValidString(sanitized) && len(sanitized) > 0 {
+			sanitized = sanitized[:len(sanitized)-1]
+		}
+	}
+
+	return sanitized
+}
+
+// safelyLogPath safely logs filenames
+func safelyLogPath(originalPath, processedPath string) {
+	// Truncate long paths for logging to avoid filling logs
+	const maxDisplayLength = 100
+	displayOriginal := originalPath
+	displayProcessed := processedPath
+
+	if len(originalPath) > maxDisplayLength {
+		displayOriginal = originalPath[:maxDisplayLength] + "..."
+	}
+	if len(processedPath) > maxDisplayLength {
+		displayProcessed = processedPath[:maxDisplayLength] + "..."
+	}
+
+	// Log the path transformation
+	fmt.Printf("Placeholders in output path processed: %s -> %s\n", displayOriginal, displayProcessed)
 }
 
 // loadConfig reads a YAML file and converts it to our Google Document AI config
@@ -89,21 +345,46 @@ func loadConfig(path string) (*gdocai.Config, error) {
 }
 
 func main() {
-	// Required flags.
-	configPath := flag.String("config", "", "Path to the config YAML file (required)")
-	pdfPath := flag.String("pdf", "", "Path to the input PDF file (required if -pdfs not specified)")
-	pdfPaths := flag.String("pdfs", "", "Comma-separated list of PDF files to process as individual pages (required if -pdf not specified)")
+	// Override the flag usage message to include additional information
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf input.pdf [options]\n\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "Options:\n")
+		flag.PrintDefaults()
 
-	// Output flags
+		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf document.pdf -text document.txt -output document_ocr.pdf\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf invoice.pdf -output \"invoice-@{number:unknown}-@{client}.pdf\"\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdfs page1.pdf,page2.pdf,page3.pdf -output combined.pdf\n", os.Args[0])
+	}
+
+	// Required flags
+	configPath := flag.String("config", "", "Path to the config YAML file (required)")
+	pdfPath := flag.String("pdf", "", "Path to the input PDF file (required if -pdfs is not defined)")
+	pdfPaths := flag.String("pdfs", "", "Comma separated list of input PDF files to process as a single document (required if -pdf is not defined)")
+
+	// Output flags with detailed descriptions
 	textPath := flag.String("text", "", "Path to save OCR text output")
 	hocrPath := flag.String("hocr", "", "Path to save HOCR output")
-	debugAPIPath := flag.String("debug-api", "", "Path to save API response as JSON for debugging purposes")
-	debugDocPath := flag.String("debug-doc", "", "Path to save transformed Document object as JSON for debugging purposes")
 	formFieldsPath := flag.String("form-fields", "", "Path to save form fields JSON")
 	extractorFieldsPath := flag.String("extractor-fields", "", "Path to save custom extractor fields JSON")
 	imagesDir := flag.String("images", "", "Directory to save images returned by Document AI API for each processed page")
-	pdfOcrPath := flag.String("output", "", "Path to save the PDF with OCR applied")
 
+	// Output flag with detailed description of placeholder support
+	pdfOcrPath := flag.String("output", "",
+		`Path to save the PDF with OCR applied. Supports field placeholders:
+  @{field_name} or @{field_name:default_value} - Auto-detect source
+  @{form_field.field_name} - Explicitly use form fields
+  @{extractor_field.field_name} - Explicitly use custom extractor fields
+Example: -output "invoice-@{invoice_number:unknown}-@{date}.pdf"
+All filenames are sanitized: Unicode characters are transliterated to ASCII,
+converted to lowercase, and invalid filename characters are replaced.`)
+
+	// Debug options
+	debugAPIPath := flag.String("debug-api", "", "Path to save raw API response as JSON for debugging")
+	debugDocPath := flag.String("debug-doc", "", "Path to save transformed Document object as JSON for debugging")
+
+	// Parse command line arguments
 	flag.Parse()
 
 	// Create a map of provided flags to validate
@@ -115,16 +396,14 @@ func main() {
 	// Validate that config is provided
 	if *configPath == "" {
 		fmt.Fprintln(os.Stderr, "Error: -config flag is required")
-		fmt.Fprintln(os.Stderr, "Usage:")
-		flag.PrintDefaults()
+		flag.Usage()
 		os.Exit(1)
 	}
 
 	// Validate that either pdf or pdfs flag is provided (but not both)
 	if (*pdfPath == "" && *pdfPaths == "") || (*pdfPath != "" && *pdfPaths != "") {
 		fmt.Fprintln(os.Stderr, "Error: Either -pdf or -pdfs flag must be provided (but not both)")
-		fmt.Fprintln(os.Stderr, "Usage:")
-		flag.PrintDefaults()
+		flag.Usage()
 		os.Exit(1)
 	}
 
@@ -147,8 +426,7 @@ func main() {
 	validateFlag("output", *pdfOcrPath)
 
 	if hasError {
-		fmt.Fprintln(os.Stderr, "Usage:")
-		flag.PrintDefaults()
+		flag.Usage()
 		os.Exit(1)
 	}
 
@@ -160,8 +438,7 @@ func main() {
 
 	if !hasOutputFlag {
 		fmt.Fprintln(os.Stderr, "Error: At least one output flag must be provided (-text, -hocr, -debug-api, -debug-doc, -form-fields, -images, or -output)")
-		fmt.Fprintln(os.Stderr, "Usage:")
-		flag.PrintDefaults()
+		flag.Usage()
 		os.Exit(1)
 	}
 
@@ -327,6 +604,41 @@ func main() {
 
 	// Generate a new OCR'ed PDF if flag is provided.
 	if *pdfOcrPath != "" {
+		// Check if the output path contains placeholders
+		if strings.Contains(*pdfOcrPath, "@{") {
+			// Split the path into directory and filename parts
+			dir, filenameWithPlaceholders := filepath.Split(*pdfOcrPath)
+
+			// Create placeholder data from extracted fields
+			placeholderData := &PlaceholderData{
+				FormFields:            doc.FormFields.Fields,
+				CustomExtractorFields: doc.CustomExtractorFields.Fields,
+			}
+
+			// Process the placeholders only in the filename part
+			processedFilename, err := processPlaceholders(filenameWithPlaceholders, placeholderData)
+			if err != nil {
+				log.Fatalf("Failed to process output path placeholders: %v", err)
+			}
+
+			// Sanitize only the filename part
+			processedFilename = sanitizeFilename(processedFilename)
+
+			// Make sure the filename has the correct extension
+			if !strings.HasSuffix(strings.ToLower(processedFilename), ".pdf") {
+				processedFilename += ".pdf"
+			}
+
+			// Recombine with the original directory
+			processedPath := filepath.Join(dir, processedFilename)
+
+			// Notify the user about the placeholder substitution
+			safelyLogPath(*pdfOcrPath, processedPath)
+
+			// Update the output path
+			*pdfOcrPath = processedPath
+		}
+
 		if doc.Hocr != nil && doc.Hocr.Content != nil {
 			var ocrPdfBytes []byte
 			var err error
@@ -378,6 +690,14 @@ func main() {
 				ocrPdfBytes, err = pdfocr.AssembleWithOCR(doc.Hocr.Content, pageImages, ocrConfig)
 				if err != nil {
 					log.Fatalf("Failed to create PDF from images: %v", err)
+				}
+			}
+
+			// Create output directory if it doesn't exist
+			outputDir := filepath.Dir(*pdfOcrPath)
+			if outputDir != "" && outputDir != "." {
+				if err := os.MkdirAll(outputDir, 0755); err != nil {
+					log.Fatalf("Failed to create output directory: %v", err)
 				}
 			}
 
