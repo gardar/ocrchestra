@@ -20,6 +20,7 @@
 //
 // - ApplyOCR: Adds OCR text layer to an existing PDF
 // - AssembleWithOCR: Creates a new PDF from images with OCR text layer
+// - DetectOCR: Best effort detection if OCR has already been applied to PDF
 package pdfocr
 
 import (
@@ -150,7 +151,7 @@ func ApplyOCR(
 	}
 
 	// Check for existing layers
-	layerResult, err := checkExistingOCRLayers(inputPDFData, config.LayerName)
+	layerResult, err := CheckExistingOCRLayers(inputPDFData, config.LayerName)
 	if err != nil {
 		return nil, fmt.Errorf("layer detection failed: %w", err)
 	}

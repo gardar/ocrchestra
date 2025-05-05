@@ -94,7 +94,31 @@ You can inject extracted fields into your output filenames. Supported syntax:
 - `@{extractor_field.field_name}`
   Force use of a custom-extractor field.
 
-#### Example
+#### OCR Detection
+
+`gdocai` can detect if a PDF already has an OCR text layer before applying a new one. This helps prevent duplicate OCR layers which can cause issues with text search and selection in some PDF viewers.
+
+- By default, when OCR is detected, `gdocai` will print a warning but continue processing, exiting with code 2 to indicate success with a warning
+- The `-strict` flag can be used to make `gdocai` exit with an error (code 3) if OCR is already present, preventing duplicate OCR layers
+- Note that OCR detection only works when enhancing existing PDFs with the `-pdf` flag. When creating new PDFs from multiple source files with `-pdfs`, OCR detection is not performed.
+
+```
+gdocai -config config.yml -pdf document.pdf -output document_searchable.pdf -strict
+```
+
+#### Exit Codes
+
+`gdocai` uses the following exit codes:
+
+| Code | Meaning |
+|------|---------|
+| 0    | Success - normal operation completed without issues |
+| 1    | Error - operation failed due to an error |
+| 2    | Warning - OCR was detected but processing completed successfully |
+| 3    | Error - OCR was detected in strict mode, processing terminated |
+
+
+#### Examples
 ```bash
 # Process a single PDF and create a searchable version (using YAML config)
 gdocai -config config.yml -pdf document.pdf -output searchable.pdf
@@ -275,7 +299,7 @@ It can either enhance existing PDFs with OCR text layers or create new PDFs from
 - Selectable with mouse drag operations
 - Can be toggled on/off in compatible PDF readers
 
-Main functions include `ApplyOCR` for adding OCR text to existing PDFs and `AssembleWithOCR` for creating new PDFs from images with OCR text layers.
+Main functions include `ApplyOCR` for adding OCR text to existing PDFs, `AssembleWithOCR` for creating new PDFs from images with OCR text layers and `DetectOCR` to detect if OCR has already been applied to a PDF.
 #### Example
 ```go
 import "github.com/gardar/ocrchestra/pkg/pdfocr"
