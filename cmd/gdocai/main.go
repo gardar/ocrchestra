@@ -6,19 +6,36 @@
 //
 // Configuration:
 //
-// The tool requires a YAML configuration file with Google Document AI settings:
+// The tool can be configured using either a YAML configuration file or environment variables:
+//
+// YAML Configuration (via -config flag):
 //
 //	project_id: "your-gcp-project-id"
 //	location: "us"
 //	processor_id: "your-processor-id"
 //
+// Environment Variables:
+//
+//	GDOCAI_PROJECT_ID: Your GCP project ID
+//	GDOCAI_LOCATION: Document AI API location (e.g., "us")
+//	GDOCAI_PROCESSOR_ID: Your Document AI processor ID
+//
+// If both config file and environment variables are provided, values from the config file take precedence.
+//
 // Usage:
 //
 //	gdocai -config config.yml -pdf input.pdf [options]
+//	# Or using environment variables:
+//	GDOCAI_PROJECT_ID=your-project GDOCAI_LOCATION=us GDOCAI_PROCESSOR_ID=your-processor gdocai -pdf input.pdf [options]
 //
-// Required flags:
+// Required configuration (via one of these methods):
 //
 //	-config string  Path to the YAML configuration file
+//	# OR environment variables:
+//	GDOCAI_PROJECT_ID, GDOCAI_LOCATION, GDOCAI_PROCESSOR_ID
+//
+// Required input flags:
+//
 //	-pdf string     Path to the input PDF file (required if -pdfs is not defined)
 //	-pdfs string    Comma separated list of input PDF files to process as a single document (required if -pdf is not defined)
 //
@@ -81,6 +98,13 @@
 //	gdocai -config config.yml -pdf invoice.pdf -output "invoice-@{number:unknown}-@{client}.pdf"
 //	gdocai -config config.yml -pdfs page1.pdf,page2.pdf,page3.pdf -output combo_document_ocr.pdf
 //	gdocai -config config.yml -pdf form.pdf -form-fields fields.json -extractor-fields entities.json
+//
+// Using environment variables instead of config file:
+//
+//	export GDOCAI_PROJECT_ID=your-gcp-project-id
+//	export GDOCAI_LOCATION=us
+//	export GDOCAI_PROCESSOR_ID=your-processor-id
+//	gdocai -pdf document.pdf -output document_ocr.pdf
 
 package main
 
@@ -327,39 +351,78 @@ func safelyLogPath(originalPath, processedPath string) {
 	fmt.Printf("Placeholders in output path processed: %s -> %s\n", displayOriginal, displayProcessed)
 }
 
-// loadConfig reads a YAML file and converts it to our Google Document AI config
+// loadConfig reads configuration from a YAML file and/or environment variables
+// and converts it to our Google Document AI config
 func loadConfig(path string) (*gdocai.Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+	// Initialize configuration with environment variables (if they exist)
+	config := &gdocai.Config{
+		ProjectID:   os.Getenv("GDOCAI_PROJECT_ID"),
+		Location:    os.Getenv("GDOCAI_LOCATION"),
+		ProcessorID: os.Getenv("GDOCAI_PROCESSOR_ID"),
 	}
-	var yc yamlConfig
-	if err := yaml.Unmarshal(data, &yc); err != nil {
-		return nil, err
+
+	// If a config file path is provided, load and use it (overriding env vars)
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var yc yamlConfig
+		if err := yaml.Unmarshal(data, &yc); err != nil {
+			return nil, err
+		}
+
+		// Override with values from YAML if they're not empty
+		if yc.ProjectID != "" {
+			config.ProjectID = yc.ProjectID
+		}
+		if yc.Location != "" {
+			config.Location = yc.Location
+		}
+		if yc.ProcessorID != "" {
+			config.ProcessorID = yc.ProcessorID
+		}
 	}
-	return &gdocai.Config{
-		ProjectID:   yc.ProjectID,
-		Location:    yc.Location,
-		ProcessorID: yc.ProcessorID,
-	}, nil
+
+	// Ensure we have the required configuration values
+	if config.ProjectID == "" {
+		return nil, fmt.Errorf("project_id not provided in config file or GDOCAI_PROJECT_ID environment variable")
+	}
+	if config.Location == "" {
+		return nil, fmt.Errorf("location not provided in config file or GDOCAI_LOCATION environment variable")
+	}
+	if config.ProcessorID == "" {
+		return nil, fmt.Errorf("processor_id not provided in config file or GDOCAI_PROCESSOR_ID environment variable")
+	}
+
+	return config, nil
 }
 
 func main() {
 	// Override the flag usage message to include additional information
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf input.pdf [options]\n\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf input.pdf [options]\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -pdf input.pdf [options] # Using environment variables for config\n\n", os.Args[0])
 		fmt.Fprintf(flag.CommandLine.Output(), "Options:\n")
 		flag.PrintDefaults()
 
+		fmt.Fprintf(flag.CommandLine.Output(), "\nEnvironment Variables for Configuration:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  GDOCAI_PROJECT_ID     - Google Cloud project ID\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  GDOCAI_LOCATION       - Document AI API location (e.g., \"us\")\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  GDOCAI_PROCESSOR_ID   - Document AI processor ID\n")
+
 		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf document.pdf -text document.txt -output document_ocr.pdf\n", os.Args[0])
-		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf invoice.pdf -output \"invoice-@{number:unknown}-@{client}.pdf\"\n", os.Args[0])
-		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdfs page1.pdf,page2.pdf,page3.pdf -output combined.pdf\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -pdf invoice.pdf -output \"invoice-@{number:unknown}-@{client}.pdf\"\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -pdfs page1.pdf,page2.pdf,page3.pdf -output combined.pdf\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  GDOCAI_PROJECT_ID=your-project GDOCAI_LOCATION=us GDOCAI_PROCESSOR_ID=your-processor %s -pdf document.pdf -output document_ocr.pdf\n", os.Args[0])
 	}
 
-	// Required flags
-	configPath := flag.String("config", "", "Path to the config YAML file (required)")
+	// Configuration flags
+	configPath := flag.String("config", "", "Path to the config YAML file (optional if using environment variables)")
+
+	// Input flags
 	pdfPath := flag.String("pdf", "", "Path to the input PDF file (required if -pdfs is not defined)")
 	pdfPaths := flag.String("pdfs", "", "Comma separated list of input PDF files to process as a single document (required if -pdf is not defined)")
 
@@ -393,11 +456,18 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		providedFlags[f.Name] = true
 	})
 
-	// Validate that config is provided
+	// Validate configuration is available (either via file or env vars)
 	if *configPath == "" {
-		fmt.Fprintln(os.Stderr, "Error: -config flag is required")
-		flag.Usage()
-		os.Exit(1)
+		// Check if we have env vars
+		hasEnvConfig := os.Getenv("GDOCAI_PROJECT_ID") != "" &&
+			os.Getenv("GDOCAI_LOCATION") != "" &&
+			os.Getenv("GDOCAI_PROCESSOR_ID") != ""
+
+		if !hasEnvConfig {
+			fmt.Fprintln(os.Stderr, "Error: Either -config flag or environment variables (GDOCAI_PROJECT_ID, GDOCAI_LOCATION, GDOCAI_PROCESSOR_ID) must be provided")
+			flag.Usage()
+			os.Exit(1)
+		}
 	}
 
 	// Validate that either pdf or pdfs flag is provided (but not both)
@@ -442,7 +512,7 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		os.Exit(1)
 	}
 
-	// Load config from file.
+	// Load config from file and/or environment variables
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
