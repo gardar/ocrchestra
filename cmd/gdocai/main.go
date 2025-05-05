@@ -81,6 +81,10 @@
 //	    - Replacing control characters
 //	    - Providing a default name if empty after sanitization
 //
+// OCR Detection:
+//
+//	-strict               Exit with error code 3 if OCR is already detected in the PDF
+//
 // Debug options:
 //
 //	-debug-api string   Path to save raw API response as JSON
@@ -124,6 +128,13 @@ import (
 
 	"github.com/gardar/ocrchestra/pkg/gdocai"
 	"github.com/gardar/ocrchestra/pkg/pdfocr"
+)
+
+const (
+	ExitCodeSuccess          = 0 // Normal successful execution
+	ExitCodeError            = 1 // General error
+	ExitCodeOCRWarning       = 2 // Successful but OCR already detected
+	ExitCodeStrictOCRFailure = 3 // OCR already present in strict mode
 )
 
 type yamlConfig struct {
@@ -412,6 +423,12 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "  GDOCAI_LOCATION       - Document AI API location (e.g., \"us\")\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  GDOCAI_PROCESSOR_ID   - Document AI processor ID\n")
 
+		fmt.Fprintf(flag.CommandLine.Output(), "\nExit Codes:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Success\n", ExitCodeSuccess)
+		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Error\n", ExitCodeError)
+		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Warning: OCR already detected, processing completed\n", ExitCodeOCRWarning)
+		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Error: OCR already detected in strict mode\n", ExitCodeStrictOCRFailure)
+
 		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  %s -config config.yml -pdf document.pdf -text document.txt -output document_ocr.pdf\n", os.Args[0])
 		fmt.Fprintf(flag.CommandLine.Output(), "  %s -pdf invoice.pdf -output \"invoice-@{number:unknown}-@{client}.pdf\"\n", os.Args[0])
@@ -432,6 +449,9 @@ func main() {
 	formFieldsPath := flag.String("form-fields", "", "Path to save form fields JSON")
 	extractorFieldsPath := flag.String("extractor-fields", "", "Path to save custom extractor fields JSON")
 	imagesDir := flag.String("images", "", "Directory to save images returned by Document AI API for each processed page")
+
+	// OCR detection flag
+	strict := flag.Bool("strict", false, "If set, exit with error code when OCR is already detected in the PDF")
 
 	// Output flag with detailed description of placeholder support
 	pdfOcrPath := flag.String("output", "",
@@ -466,7 +486,7 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		if !hasEnvConfig {
 			fmt.Fprintln(os.Stderr, "Error: Either -config flag or environment variables (GDOCAI_PROJECT_ID, GDOCAI_LOCATION, GDOCAI_PROCESSOR_ID) must be provided")
 			flag.Usage()
-			os.Exit(1)
+			os.Exit(ExitCodeError)
 		}
 	}
 
@@ -474,7 +494,7 @@ converted to lowercase, and invalid filename characters are replaced.`)
 	if (*pdfPath == "" && *pdfPaths == "") || (*pdfPath != "" && *pdfPaths != "") {
 		fmt.Fprintln(os.Stderr, "Error: Either -pdf or -pdfs flag must be provided (but not both)")
 		flag.Usage()
-		os.Exit(1)
+		os.Exit(ExitCodeError)
 	}
 
 	// Validate that provided output flags have values
@@ -497,7 +517,7 @@ converted to lowercase, and invalid filename characters are replaced.`)
 
 	if hasError {
 		flag.Usage()
-		os.Exit(1)
+		os.Exit(ExitCodeError)
 	}
 
 	// Check if at least one output flag is provided
@@ -509,7 +529,7 @@ converted to lowercase, and invalid filename characters are replaced.`)
 	if !hasOutputFlag {
 		fmt.Fprintln(os.Stderr, "Error: At least one output flag must be provided (-text, -hocr, -debug-api, -debug-doc, -form-fields, -images, or -output)")
 		flag.Usage()
-		os.Exit(1)
+		os.Exit(ExitCodeError)
 	}
 
 	// Load config from file and/or environment variables
@@ -574,6 +594,9 @@ converted to lowercase, and invalid filename characters are replaced.`)
 			log.Fatalf("Error processing documents: %v", err)
 		}
 	}
+
+	// Track if OCR was detected
+	ocrDetected := false
 
 	// Write OCR text output if flag is provided.
 	if *textPath != "" {
@@ -713,18 +736,56 @@ converted to lowercase, and invalid filename characters are replaced.`)
 			var ocrPdfBytes []byte
 			var err error
 
+			// Check for existing OCR if we're processing a single PDF
 			if *pdfPath != "" && (*pdfPaths == "" || !providedFlags["pdfs"]) {
+				// Only check for existing OCR in single PDF files
+				pdfBytes, err := os.ReadFile(*pdfPath)
+				if err != nil {
+					log.Fatalf("Failed to read PDF file for OCR check: %v", err)
+				}
+
+				// Check for existing OCR
+				ocrConfig := pdfocr.DefaultConfig()
+				detectionResult, err := pdfocr.DetectOCR(pdfBytes, ocrConfig)
+
+				if err != nil {
+					fmt.Printf("Warning: OCR detection encountered errors: %v\n", err)
+				} else {
+					// Display layer information if available
+					if len(detectionResult.LayerInfo.Layers) > 0 {
+						fmt.Println("Existing layers detected in PDF:")
+						for i, layer := range detectionResult.LayerInfo.Layers {
+							fmt.Printf("  %d. %s\n", i+1, layer)
+						}
+					}
+
+					// Check if OCR is detected
+					if detectionResult.HasOCR {
+						if *strict {
+							// In strict mode, fail with error
+							fmt.Printf("Error: OCR layer already detected in PdDF ('%s'). Use without -strict to override.\n",
+								detectionResult.LayerInfo.OCRLayerName)
+							os.Exit(ExitCodeStrictOCRFailure)
+						} else {
+							// In normal mode, warn but continue
+							fmt.Printf("Warning: OCR layer already detected in PDF ('%s'). Processing will continue but may result in duplicate OCR.\n",
+								detectionResult.LayerInfo.OCRLayerName)
+							ocrDetected = true
+						}
+					}
+
+					// Display any warnings from the detection process
+					for _, warning := range detectionResult.Warnings {
+						fmt.Printf("Warning: %s\n", warning)
+					}
+				}
+
 				// Single PDF case - use ApplyOCR to modify the existing PDF
 				fmt.Println("Creating searchable PDF by applying OCR to existing PDF...")
 
-				// Read the original PDF
-				pdfBytes, err := os.ReadFile(*pdfPath)
-				if err != nil {
-					log.Fatalf("Failed to read PDF file: %v", err)
-				}
-
-				// Apply OCR to the PDF
-				ocrPdfBytes, err = pdfocr.ApplyOCR(pdfBytes, doc.Hocr.Content, pdfocr.DefaultConfig())
+				// Apply OCR to the PDF (force=true so it adds OCR even if it's detected)
+				ocrConfig.Force = true
+				ocrPdfBytes, err = pdfocr.ApplyOCR(pdfBytes, doc.Hocr.Content, ocrConfig)
 				if err != nil {
 					log.Fatalf("Failed to apply OCR to PDF: %v", err)
 				}
@@ -779,5 +840,12 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		} else {
 			log.Fatalf("HOCR content not available for creating searchable PDF")
 		}
+	}
+
+	// Exit with appropriate code
+	if ocrDetected {
+		os.Exit(ExitCodeOCRWarning)
+	} else {
+		os.Exit(ExitCodeSuccess)
 	}
 }

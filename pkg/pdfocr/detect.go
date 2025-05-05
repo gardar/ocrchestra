@@ -76,8 +76,8 @@ type LayerCheckResult struct {
 	Warnings     []string // Any warnings about potential OCR layers
 }
 
-// checkExistingOCRLayers checks for existing OCR layers in a PDF
-func checkExistingOCRLayers(pdfData []byte, ocrLayerName string) (LayerCheckResult, error) {
+// CheckExistingOCRLayers checks for existing OCR layers in a PDF
+func CheckExistingOCRLayers(pdfData []byte, ocrLayerName string) (LayerCheckResult, error) {
 	result := LayerCheckResult{}
 
 	// Detect existing layers
@@ -88,14 +88,21 @@ func checkExistingOCRLayers(pdfData []byte, ocrLayerName string) (LayerCheckResu
 
 	result.Layers = layers
 
-	// Create a regex to match layer names with page numbers
-	// Pattern will match: "Base Layer Name" or "Base Layer Name (Page X)"
-	pageLayerPattern := regexp.MustCompile(fmt.Sprintf(`^%s(\s*\(Page\s*\d+\))?$`, regexp.QuoteMeta(ocrLayerName)))
+	// Create a regex to match layer names with page numbers - more lenient pattern
+	// This accounts for potential formatting issues in the PDF layer names
+	pageLayerPattern := regexp.MustCompile(fmt.Sprintf(`^%s\s*\(Page\s*\d+.*`, regexp.QuoteMeta(ocrLayerName)))
 
 	// Check for OCR layers
 	for _, layer := range layers {
-		// Check for exact match or page-specific match
-		if layer == ocrLayerName || pageLayerPattern.MatchString(layer) {
+		// Check for exact match
+		if layer == ocrLayerName {
+			result.HasOCRLayer = true
+			result.OCRLayerName = layer
+			break
+		}
+
+		// Check for page-specific match with more lenient pattern
+		if pageLayerPattern.MatchString(layer) {
 			result.HasOCRLayer = true
 			result.OCRLayerName = layer
 			break
@@ -108,6 +115,52 @@ func checkExistingOCRLayers(pdfData []byte, ocrLayerName string) (LayerCheckResu
 				fmt.Sprintf("Existing layer detected that might contain OCR: %s", layer))
 		}
 	}
+
+	return result, nil
+}
+
+// OCRDetectionResult contains comprehensive OCR detection information
+type OCRDetectionResult struct {
+	HasOCR      bool // True if any OCR is detected by any method
+	HasLayerOCR bool // True if OCR layers are detected
+
+	LayerInfo LayerCheckResult // Details from layer detection
+
+	Warnings []string // Warnings from any detection method
+}
+
+// DetectOCR performs OCR detection using available methods
+func DetectOCR(pdfData []byte, config OCRConfig) (OCRDetectionResult, error) {
+	result := OCRDetectionResult{}
+
+	// Check for OCR layers
+	layerResult, err := CheckExistingOCRLayers(pdfData, config.LayerName)
+	if err != nil {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Layer detection error: %v", err))
+	} else {
+		result.LayerInfo = layerResult
+		result.HasLayerOCR = layerResult.HasOCRLayer
+		result.Warnings = append(result.Warnings, layerResult.Warnings...)
+
+		// If we have warnings about potential OCR layers but none were detected,
+		// we should still flag these as potential OCR
+		if !result.HasLayerOCR && len(layerResult.Warnings) > 0 {
+			for _, warning := range layerResult.Warnings {
+				if strings.Contains(warning, "might contain OCR") {
+					// We don't set HasLayerOCR to true here as it wasn't an exact match
+					// But we do add it to the warnings so the user can make an informed decision
+					result.Warnings = append(result.Warnings,
+						"Consider using -strict as potential OCR layers were detected")
+					break
+				}
+			}
+		}
+	}
+
+	// For now, HasOCR is the same as HasLayerOCR
+	// This will be expanded when new detection methods are added
+	result.HasOCR = result.HasLayerOCR
 
 	return result, nil
 }
