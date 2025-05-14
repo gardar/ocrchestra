@@ -113,9 +113,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -133,7 +135,7 @@ import (
 const (
 	ExitCodeSuccess          = 0 // Normal successful execution
 	ExitCodeError            = 1 // General error
-	ExitCodeOCRWarning       = 2 // Successful but OCR already detected
+	ExitCodeSuccessWithWarns = 2 // Success but with warnings (including OCR already detected)
 	ExitCodeStrictOCRFailure = 3 // OCR already present in strict mode
 )
 
@@ -141,6 +143,34 @@ type yamlConfig struct {
 	ProjectID   string `yaml:"project_id"`
 	Location    string `yaml:"location"`
 	ProcessorID string `yaml:"processor_id"`
+}
+
+// warningWriter captures warnings written to the logger
+type warningWriter struct {
+	buf    bytes.Buffer
+	target io.Writer // Usually os.Stdout
+}
+
+func newWarningWriter(target io.Writer) *warningWriter {
+	return &warningWriter{
+		target: target,
+	}
+}
+
+func (w *warningWriter) Write(p []byte) (n int, err error) {
+	// Write to both the buffer (for tracking) and the target (for display)
+	w.buf.Write(p)
+	return w.target.Write(p)
+}
+
+// HasWarnings checks if any warnings were logged
+func (w *warningWriter) HasWarnings() bool {
+	return strings.Contains(w.buf.String(), "Warning:")
+}
+
+// HasOCRWarning specifically checks if OCR already exists warning was logged
+func (w *warningWriter) HasOCRWarning() bool {
+	return strings.Contains(w.buf.String(), "already has OCR")
 }
 
 // PlaceholderData holds data available for placeholder substitution
@@ -426,7 +456,7 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "\nExit Codes:\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Success\n", ExitCodeSuccess)
 		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Error\n", ExitCodeError)
-		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Warning: OCR already detected, processing completed\n", ExitCodeOCRWarning)
+		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Success with warnings (including OCR already detected)\n", ExitCodeSuccessWithWarns)
 		fmt.Fprintf(flag.CommandLine.Output(), "  %d - Error: OCR already detected in strict mode\n", ExitCodeStrictOCRFailure)
 
 		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
@@ -532,6 +562,22 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		os.Exit(ExitCodeError)
 	}
 
+	// Create a warning writer to capture warnings
+	warningCapture := newWarningWriter(os.Stdout)
+
+	// Build the OCRConfig for any PDF processing that might occur
+	pdfOcrConfig := pdfocr.OCRConfig{
+		Debug:       false,
+		Force:       false,   // Will be set before use if needed
+		Strict:      *strict, // Use strict mode based on flag
+		StartPage:   1,
+		DumpPDF:     false,
+		Font:        pdfocr.DefaultFont,
+		LogWarnings: true,
+		LayerName:   "OCR Text",
+		Logger:      warningCapture, // Use our custom writer to track warnings
+	}
+
 	// Load config from file and/or environment variables
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
@@ -594,9 +640,6 @@ converted to lowercase, and invalid filename characters are replaced.`)
 			log.Fatalf("Error processing documents: %v", err)
 		}
 	}
-
-	// Track if OCR was detected
-	ocrDetected := false
 
 	// Write OCR text output if flag is provided.
 	if *textPath != "" {
@@ -736,57 +779,25 @@ converted to lowercase, and invalid filename characters are replaced.`)
 			var ocrPdfBytes []byte
 			var err error
 
-			// Check for existing OCR if we're processing a single PDF
+			// Process based on input type
 			if *pdfPath != "" && (*pdfPaths == "" || !providedFlags["pdfs"]) {
-				// Only check for existing OCR in single PDF files
-				pdfBytes, err := os.ReadFile(*pdfPath)
-				if err != nil {
-					log.Fatalf("Failed to read PDF file for OCR check: %v", err)
-				}
-
-				// Check for existing OCR
-				ocrConfig := pdfocr.DefaultConfig()
-				detectionResult, err := pdfocr.DetectOCR(pdfBytes, ocrConfig)
-
-				if err != nil {
-					fmt.Printf("Warning: OCR detection encountered errors: %v\n", err)
-				} else {
-					// Display layer information if available
-					if len(detectionResult.LayerInfo.Layers) > 0 {
-						fmt.Println("Existing layers detected in PDF:")
-						for i, layer := range detectionResult.LayerInfo.Layers {
-							fmt.Printf("  %d. %s\n", i+1, layer)
-						}
-					}
-
-					// Check if OCR is detected
-					if detectionResult.HasOCR {
-						if *strict {
-							// In strict mode, fail with error
-							fmt.Printf("Error: OCR layer already detected in PdDF ('%s'). Use without -strict to override.\n",
-								detectionResult.LayerInfo.OCRLayerName)
-							os.Exit(ExitCodeStrictOCRFailure)
-						} else {
-							// In normal mode, warn but continue
-							fmt.Printf("Warning: OCR layer already detected in PDF ('%s'). Processing will continue but may result in duplicate OCR.\n",
-								detectionResult.LayerInfo.OCRLayerName)
-							ocrDetected = true
-						}
-					}
-
-					// Display any warnings from the detection process
-					for _, warning := range detectionResult.Warnings {
-						fmt.Printf("Warning: %s\n", warning)
-					}
-				}
-
 				// Single PDF case - use ApplyOCR to modify the existing PDF
 				fmt.Println("Creating searchable PDF by applying OCR to existing PDF...")
 
-				// Apply OCR to the PDF (force=true so it adds OCR even if it's detected)
-				ocrConfig.Force = true
-				ocrPdfBytes, err = pdfocr.ApplyOCR(pdfBytes, doc.Hocr.Content, ocrConfig)
+				// Read the PDF
+				pdfBytes, err := os.ReadFile(*pdfPath)
 				if err != nil {
+					log.Fatalf("Failed to read PDF file: %v", err)
+				}
+
+				// Apply OCR to the PDF
+				ocrPdfBytes, err = pdfocr.ApplyOCR(pdfBytes, doc.Hocr.Content, pdfOcrConfig)
+				if err != nil {
+					// Special case for OCR already detected in strict mode
+					if strings.Contains(err.Error(), "already has OCR") && *strict {
+						fmt.Printf("Error: %v\n", err)
+						os.Exit(ExitCodeStrictOCRFailure)
+					}
 					log.Fatalf("Failed to apply OCR to PDF: %v", err)
 				}
 			} else {
@@ -817,8 +828,7 @@ converted to lowercase, and invalid filename characters are replaced.`)
 				fmt.Printf("Assembling PDF with %d pages...\n", len(pageImages))
 
 				// Use AssembleWithOCR to create a new PDF from images
-				ocrConfig := pdfocr.DefaultConfig()
-				ocrPdfBytes, err = pdfocr.AssembleWithOCR(doc.Hocr.Content, pageImages, ocrConfig)
+				ocrPdfBytes, err = pdfocr.AssembleWithOCR(doc.Hocr.Content, pageImages, pdfOcrConfig)
 				if err != nil {
 					log.Fatalf("Failed to create PDF from images: %v", err)
 				}
@@ -842,9 +852,13 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		}
 	}
 
-	// Exit with appropriate code
-	if ocrDetected {
-		os.Exit(ExitCodeOCRWarning)
+	// Exit with appropriate code based on warning capture
+	if warningCapture.HasOCRWarning() {
+		fmt.Println("Note: Completed with OCR warnings - existing OCR was detected")
+		os.Exit(ExitCodeSuccessWithWarns)
+	} else if warningCapture.HasWarnings() {
+		fmt.Println("Note: Completed with warnings")
+		os.Exit(ExitCodeSuccessWithWarns)
 	} else {
 		os.Exit(ExitCodeSuccess)
 	}

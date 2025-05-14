@@ -7,7 +7,8 @@ import (
 // OCRConfig holds user options for applying OCR to PDF
 type OCRConfig struct {
 	Debug       bool      // Enable debug mode
-	Force       bool      // Force reapply OCR even if layer already exists
+	Force       bool      // Force OCR application, overriding all warnings and errors
+	Strict      bool      // If true, turn warnings into errors (unless Force is also true)
 	LayerName   string    // Base name of OCR layer (page number will be appended)
 	StartPage   int       // Start applying OCR from this page number
 	DumpPDF     bool      // Dump PDF structure for debugging
@@ -21,6 +22,7 @@ func DefaultConfig() OCRConfig {
 	return OCRConfig{
 		Debug:       false,
 		Force:       false,
+		Strict:      false,
 		LayerName:   "OCR Text", // Will be formatted as "OCR Text (Page X)" in the final PDF
 		StartPage:   1,
 		DumpPDF:     false,

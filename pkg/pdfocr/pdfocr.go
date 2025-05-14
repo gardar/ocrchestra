@@ -76,6 +76,9 @@ func AssembleWithOCR(
 			len(imagesData), len(hocrStruct.Pages))
 	}
 
+	// Get the logger
+	logger := getLogger(config)
+
 	// Validate image formats
 	for i, imgData := range imagesData {
 		if len(imgData) == 0 {
@@ -86,7 +89,7 @@ func AssembleWithOCR(
 			return nil, fmt.Errorf("image %d has invalid format: %w", i+1, err)
 		}
 		if config.Debug {
-			fmt.Printf("Image %d is of type: %s\n", i+1, imageType)
+			fmt.Fprintf(logger, "Image %d is of type: %s\n", i+1, imageType)
 		}
 	}
 
@@ -145,44 +148,99 @@ func ApplyOCR(
 		return nil, fmt.Errorf("start page must be at least 1, got %d", config.StartPage)
 	}
 
+	// Get the logger
+	logger := getLogger(config)
+
 	// Display PDF structure debug if requested
 	if config.DumpPDF {
-		dumpPDFStructure(inputPDFData, 2000, config.Logger)
+		dumpPDFStructure(inputPDFData, 2000, logger)
 	}
 
-	// Check for existing layers
-	layerResult, err := CheckExistingOCRLayers(inputPDFData, config.LayerName)
+	// Collect all warnings and potential errors first
+	var warnings []string
+	var blockers []string // Conditions that would block in strict mode
+	var hasOCR bool
+	var ocrLayerName string
+	var layerInfo LayerCheckResult
+
+	// Check for existing OCR
+	ocrResult, err := DetectOCR(inputPDFData, config)
+
+	// Process detection results
 	if err != nil {
-		return nil, fmt.Errorf("layer detection failed: %w", err)
+		// OCR detection failed
+		detectionErr := fmt.Sprintf("OCR detection failed: %v", err)
+		warnings = append(warnings, detectionErr)
+		blockers = append(blockers, detectionErr)
+	} else {
+		// Store layer info for possible display
+		layerInfo = ocrResult.LayerInfo
+
+		// Add detection warnings
+		warnings = append(warnings, ocrResult.Warnings...)
+
+		// Handle existing OCR detection
+		if ocrResult.HasOCR {
+			hasOCR = true
+			ocrLayerName = ocrResult.LayerInfo.OCRLayerName
+
+			// Format OCR message with layer name if available
+			layerText := ""
+			if ocrLayerName != "" {
+				layerText = fmt.Sprintf(" (layer '%s')", ocrLayerName)
+			}
+
+			ocrMsg := fmt.Sprintf("file already has OCR%s", layerText)
+			warnings = append(warnings, ocrMsg)
+			blockers = append(blockers, ocrMsg)
+		}
 	}
 
-	// Display layer information if available
-	if len(layerResult.Layers) > 0 {
-		fmt.Println("Existing layers detected in PDF:")
-		for i, layer := range layerResult.Layers {
-			fmt.Printf("  %d. %s\n", i+1, layer)
+	// Decide whether to proceed based on Force/Strict settings
+	shouldProceed := true
+
+	// If we have blockers and we're in strict mode without force, we should stop
+	if len(blockers) > 0 && config.Strict && !config.Force {
+		return nil, fmt.Errorf("%s - set Force option to override", blockers[0])
+	}
+
+	// Log warnings and info if we're proceeding
+	if shouldProceed && config.LogWarnings {
+		// If force is enabled, explain we're overriding potential issues
+		if config.Force && (len(blockers) > 0) {
+			fmt.Fprintln(logger, "Force mode enabled: proceeding regardless of OCR detection issues")
 		}
 
-		// Additional debug information if requested
-		if config.Debug {
-			fmt.Println("Debug: Raw layer names with byte representation:")
-			for i, layer := range layerResult.Layers {
-				fmt.Printf("  %d. %q\n", i+1, layer)
+		// Display layer information if available
+		if len(layerInfo.Layers) > 0 {
+			fmt.Fprintln(logger, "Existing layers detected in PDF:")
+			for i, layer := range layerInfo.Layers {
+				fmt.Fprintf(logger, "  %d. %s\n", i+1, layer)
+			}
+
+			// Additional debug information if requested
+			if config.Debug {
+				fmt.Fprintln(logger, "Debug: Raw layer names with byte representation:")
+				for i, layer := range layerInfo.Layers {
+					fmt.Fprintf(logger, "  %d. %q\n", i+1, layer)
+				}
 			}
 		}
-	}
 
-	// Report any warnings from layer detection
-	for _, warning := range layerResult.Warnings {
-		fmt.Println("Warning:", warning)
-	}
+		// Log all warnings
+		for _, warning := range warnings {
+			fmt.Fprintln(logger, "Warning:", warning)
+		}
 
-	// Enforce safety check unless force override is requested
-	if layerResult.HasOCRLayer && !config.Force {
-		return nil, fmt.Errorf("file already has OCR (layer '%s') – use -force to reapply",
-			layerResult.OCRLayerName)
-	} else if layerResult.HasOCRLayer {
-		fmt.Println("Warning: file already has OCR; reapplying due to -force will result in duplicate OCR data")
+		// Add guidance for warnings that would be errors in strict mode
+		if len(blockers) > 0 && !config.Strict {
+			fmt.Fprintln(logger, "Proceeding with OCR application (use Strict mode to prevent this)")
+		}
+
+		// If force is being used to override existing OCR, warn about duplication
+		if hasOCR && config.Force {
+			fmt.Fprintln(logger, "Proceeding due to Force mode (may result in duplicate OCR data)")
+		}
 	}
 
 	// Proceed with PDF modification

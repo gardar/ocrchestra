@@ -160,6 +160,37 @@ Key features:
 
 The tool works with hOCR files generated from any OCR system, including those produced by the `gdocai` tool.
 
+#### OCR Detection
+
+`pdfocr` can detect if a PDF already has an OCR text layer before adding a new one. This helps prevent duplicate OCR layers which can cause issues with text search and selection in some PDF viewers.
+
+- By default, when OCR is detected, a warning is displayed but processing continues
+- Use the `-strict` flag to make pdfocr exit with an error if OCR is already present
+- Use the `-force` flag to apply OCR even when an existing layer is detected
+- The `-strict` and `-force` flags can be combined in special cases: if both are specified, `-force` takes precedence, allowing OCR application regardless of detection results
+
+```bash
+# Exit with error if OCR is already present
+pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -strict
+
+# Force application of OCR even if already present
+pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -force
+
+# Force takes precedence over strict
+pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -strict -force
+```
+
+#### Exit Codes
+
+`pdfocr` uses the following exit codes:
+
+| Code | Meaning |
+|------|---------|
+| 0    | Success - normal operation completed without issues |
+| 1    | Error - operation failed due to an error |
+| 2    | Warning - OCR was detected but processing completed successfully |
+| 3    | Error - OCR was detected in strict mode, processing terminated |
+
 #### Example
 ```bash
 # Apply OCR layer to an existing PDF
