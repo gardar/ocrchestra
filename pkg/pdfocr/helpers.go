@@ -45,13 +45,18 @@ func decodeUTF16BE(b []byte) (string, error) {
 	return string(runes), nil
 }
 
+// getLogger returns the appropriate io.Writer to use for logging
+// based on the configuration settings, defaulting to os.Stdout if nil.
+func getLogger(config OCRConfig) io.Writer {
+	if config.Logger == nil {
+		return os.Stdout
+	}
+	return config.Logger
+}
+
 // dumpPDFStructure is a debug utility that prints out
 // the first N bytes of the PDF plus any /OCG layer references.
 func dumpPDFStructure(pdfData []byte, byteCount int, logger io.Writer) {
-	if logger == nil {
-		logger = os.Stdout // Default to stdout
-	}
-
 	if byteCount > len(pdfData) {
 		byteCount = len(pdfData)
 	}

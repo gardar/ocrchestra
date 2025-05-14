@@ -151,7 +151,7 @@ func DetectOCR(pdfData []byte, config OCRConfig) (OCRDetectionResult, error) {
 					// We don't set HasLayerOCR to true here as it wasn't an exact match
 					// But we do add it to the warnings so the user can make an informed decision
 					result.Warnings = append(result.Warnings,
-						"Consider using -strict as potential OCR layers were detected")
+						"Potential OCR layers were detected")
 					break
 				}
 			}
