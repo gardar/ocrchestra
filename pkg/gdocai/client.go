@@ -13,11 +13,14 @@ import (
 // ProcessDocument sends PDF bytes to Google Document AI for processing
 // and returns the raw Document proto response
 func ProcessDocument(ctx context.Context, pdfBytes []byte, cfg *Config) (*documentaipb.Document, error) {
-	// Instantiate Document AI client using credentials from environment variable
-	client, err := documentai.NewDocumentProcessorClient(
-		ctx,
-		option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")),
-	)
+	endpoint := fmt.Sprintf("%s-documentai.googleapis.com:443", cfg.Location)
+
+        // Instantiate Document AI client using credentials from environment variable
+        client, err := documentai.NewDocumentProcessorClient(
+                ctx,
+                option.WithEndpoint(endpoint),
+                option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")),
+        )
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Document AI client: %w", err)
 	}
