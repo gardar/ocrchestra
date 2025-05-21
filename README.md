@@ -100,10 +100,13 @@ You can inject extracted fields into your output filenames. Supported syntax:
 
 - By default, when OCR is detected, `gdocai` will print a warning but continue processing, exiting with code 2 to indicate success with a warning
 - The `-strict` flag can be used to make `gdocai` exit with an error (code 3) if OCR is already present, preventing duplicate OCR layers
-- Note that OCR detection only works when enhancing existing PDFs with the `-pdf` flag. When creating new PDFs from multiple source files with `-pdfs`, OCR detection is not performed.
+- The `-force` flag can be used to ensure processing continues even when OCR is already detected
+- If both `-strict` and `-force` flags are specified, `-force` takes precedence, allowing processing to continue
+- OCR detection is performed for both single PDFs (with `-pdf`) and individual pages when using multiple source files (with `-pdfs`)
 
 ```
 gdocai -config config.yml -pdf document.pdf -output document_searchable.pdf -strict
+gdocai -config config.yml -pdf document.pdf -output document_searchable.pdf -force
 ```
 
 #### Exit Codes

@@ -439,6 +439,31 @@ func loadConfig(path string) (*gdocai.Config, error) {
 	return config, nil
 }
 
+// checkPDFForOCR checks if a PDF already has OCR
+// Exits if in strict mode and OCR is found
+// Returns true if OCR detected (for reporting)
+func checkPDFForOCR(pdfBytes []byte, config pdfocr.OCRConfig) bool {
+	ocrResult, err := pdfocr.DetectOCR(pdfBytes, config)
+	if err != nil {
+		fmt.Printf("Warning: OCR detection failed: %v\n", err)
+		return false
+	}
+
+	if ocrResult.HasOCR {
+		fmt.Printf("Warning: Document already has OCR\n")
+
+		// In strict mode without force, exit with error
+		if config.Strict && !config.Force {
+			fmt.Printf("Error: Document already has OCR and strict mode is enabled\n")
+			os.Exit(ExitCodeStrictOCRFailure)
+		}
+
+		return true
+	}
+
+	return false
+}
+
 func main() {
 	// Override the flag usage message to include additional information
 	flag.Usage = func() {
@@ -482,6 +507,7 @@ func main() {
 
 	// OCR detection flag
 	strict := flag.Bool("strict", false, "If set, exit with error code when OCR is already detected in the PDF")
+	force := flag.Bool("force", false, "Force processing even if OCR is already detected")
 
 	// Output flag with detailed description of placeholder support
 	pdfOcrPath := flag.String("output", "",
@@ -568,8 +594,8 @@ converted to lowercase, and invalid filename characters are replaced.`)
 	// Build the OCRConfig for any PDF processing that might occur
 	pdfOcrConfig := pdfocr.OCRConfig{
 		Debug:       false,
-		Force:       false,   // Will be set before use if needed
-		Strict:      *strict, // Use strict mode based on flag
+		Force:       *force,
+		Strict:      *strict,
 		StartPage:   1,
 		DumpPDF:     false,
 		Font:        pdfocr.DefaultFont,
@@ -588,6 +614,7 @@ converted to lowercase, and invalid filename characters are replaced.`)
 	ctx := context.Background()
 	var doc *gdocai.Document
 	var hocrHTML string
+	var hasOCR bool
 
 	if *pdfPath != "" {
 		// Process a single PDF file
@@ -598,6 +625,9 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		if err != nil {
 			log.Fatalf("Failed to read PDF file: %v", err)
 		}
+
+		// Pre-check for OCR (exits if strict mode and OCR found)
+		hasOCR = checkPDFForOCR(pdfBytes, pdfOcrConfig)
 
 		// Process the PDF using Google Document AI.
 		doc, hocrHTML, err = gdocai.DocumentHOCR(ctx, pdfBytes, cfg)
@@ -627,11 +657,22 @@ converted to lowercase, and invalid filename characters are replaced.`)
 			if err != nil {
 				log.Fatalf("Failed to read PDF file %s: %v", path, err)
 			}
-			pdfPageBytes = append(pdfPageBytes, pageBytes)
-		}
 
-		if len(pdfPageBytes) == 0 {
-			log.Fatalf("No valid PDF files found in the provided list")
+			// Check for OCR in this page
+			ocrResult, err := pdfocr.DetectOCR(pageBytes, pdfOcrConfig)
+			if err == nil && ocrResult.HasOCR {
+				fmt.Printf("Warning: Page %d already has OCR\n", i+1)
+				hasOCR = true
+
+				// In strict mode without force, exit with error
+				if *strict && !*force {
+					fmt.Printf("Error: Page %d already has OCR and strict mode is enabled\n", i+1)
+					os.Exit(ExitCodeStrictOCRFailure)
+				}
+			}
+
+			// Add page to processing regardless (OCR check just sets warning flag)
+			pdfPageBytes = append(pdfPageBytes, pageBytes)
 		}
 
 		// Process the PDFs using DocumentHOCRFromPages
@@ -639,6 +680,11 @@ converted to lowercase, and invalid filename characters are replaced.`)
 		if err != nil {
 			log.Fatalf("Error processing documents: %v", err)
 		}
+	}
+
+	// If OCR was detected, add to warning capture for proper exit code later
+	if hasOCR {
+		warningCapture.buf.WriteString("Warning: Document already has OCR\n")
 	}
 
 	// Write OCR text output if flag is provided.
