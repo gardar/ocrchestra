@@ -15,12 +15,12 @@ import (
 func ProcessDocument(ctx context.Context, pdfBytes []byte, cfg *Config) (*documentaipb.Document, error) {
 	endpoint := fmt.Sprintf("%s-documentai.googleapis.com:443", cfg.Location)
 
-        // Instantiate Document AI client using credentials from environment variable
-        client, err := documentai.NewDocumentProcessorClient(
-                ctx,
-                option.WithEndpoint(endpoint),
-                option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")),
-        )
+	// Instantiate Document AI client using credentials from environment variable
+	client, err := documentai.NewDocumentProcessorClient(
+		ctx,
+		option.WithEndpoint(endpoint),
+		option.WithCredentialsFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Document AI client: %w", err)
 	}

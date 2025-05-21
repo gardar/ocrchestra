@@ -100,10 +100,13 @@ You can inject extracted fields into your output filenames. Supported syntax:
 
 - By default, when OCR is detected, `gdocai` will print a warning but continue processing, exiting with code 2 to indicate success with a warning
 - The `-strict` flag can be used to make `gdocai` exit with an error (code 3) if OCR is already present, preventing duplicate OCR layers
-- Note that OCR detection only works when enhancing existing PDFs with the `-pdf` flag. When creating new PDFs from multiple source files with `-pdfs`, OCR detection is not performed.
+- The `-force` flag can be used to ensure processing continues even when OCR is already detected
+- If both `-strict` and `-force` flags are specified, `-force` takes precedence, allowing processing to continue
+- OCR detection is performed for both single PDFs (with `-pdf`) and individual pages when using multiple source files (with `-pdfs`)
 
 ```
 gdocai -config config.yml -pdf document.pdf -output document_searchable.pdf -strict
+gdocai -config config.yml -pdf document.pdf -output document_searchable.pdf -force
 ```
 
 #### Exit Codes
@@ -157,6 +160,7 @@ Key features:
 - Position text at the exact location of each recognized word
 - Debug mode to visualize OCR bounding boxes
 - Detect existing OCR layers to prevent duplication
+- Check if a PDF already has OCR without modifying the document
 
 The tool works with hOCR files generated from any OCR system, including those produced by the `gdocai` tool.
 
@@ -168,6 +172,7 @@ The tool works with hOCR files generated from any OCR system, including those pr
 - Use the `-strict` flag to make pdfocr exit with an error if OCR is already present
 - Use the `-force` flag to apply OCR even when an existing layer is detected
 - The `-strict` and `-force` flags can be combined in special cases: if both are specified, `-force` takes precedence, allowing OCR application regardless of detection results
+- The `-check-ocr` flag can be used to only check if a PDF has OCR without applying any changes
 
 ```bash
 # Exit with error if OCR is already present
@@ -178,6 +183,9 @@ pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -force
 
 # Force takes precedence over strict
 pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -strict -force
+
+# Only check if a PDF has OCR without modifying it
+pdfocr -pdf document.pdf -check-ocr
 ```
 
 #### Exit Codes
@@ -204,6 +212,9 @@ pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -debug
 
 # Force reapplication of OCR layer
 pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -force
+
+# Check if a PDF already has OCR
+pdfocr -pdf document.pdf -check-ocr
 ```
 
 ## Packages
