@@ -7,11 +7,12 @@
 // Usage:
 //
 //	pdfocr -hocr document.hocr [options]
+//	pdfocr -pdf document.pdf -check-ocr
 //
 // Required flags:
 //
-//	-hocr string      Path to HOCR file
-//	-output string    Output PDF path
+//	-hocr string      Path to hOCR file (required except for -check-ocr)
+//	-output string    Output PDF path (required except for -check-ocr)
 //
 // Input options (one required):
 //
@@ -26,6 +27,7 @@
 //	-strict           Error out when OCR detection fails or OCR already exists (unless Force is used)
 //	-overwrite        Overwrite output file if it exists
 //	-debug-pdf        Dump PDF structure for debugging
+//	-check-ocr        Check if the PDF already has OCR and exit
 //
 // Exit codes:
 //
@@ -43,6 +45,10 @@
 // Create PDF from image directory with OCR:
 //
 //	pdfocr -hocr document.hocr -image-dir ./page_images -output document_searchable.pdf
+//
+// Check if a PDF already has OCR:
+//
+//	pdfocr -pdf document.pdf -check-ocr
 package main
 
 import (
@@ -95,6 +101,7 @@ func (w *warningWriter) HasOCRWarning() bool {
 }
 
 func main() {
+	// Define command-line flags
 	hocrPath := flag.String("hocr", "", "Path to a multi-page HOCR file")
 	imageDirPath := flag.String("image-dir", "", "Directory containing images")
 	pdfPath := flag.String("pdf", "", "Path to an existing PDF to add OCR layer to")
@@ -105,11 +112,13 @@ func main() {
 	strict := flag.Bool("strict", false, "Error out when OCR detection fails or OCR already exists (unless Force is used)")
 	overwriteOutput := flag.Bool("overwrite", false, "Overwrite the output PDF if it already exists")
 	dumpPDF := flag.Bool("debug-pdf", false, "Dump PDF structure for debugging")
+	checkOCR := flag.Bool("check-ocr", false, "Check if the PDF already has OCR and exit")
 
 	// Update the usage to include the exit codes
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		fmt.Fprintf(flag.CommandLine.Output(), "  %s -hocr document.hocr -pdf document.pdf -output document_searchable.pdf\n\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -hocr document.hocr -pdf document.pdf -output document_searchable.pdf\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -pdf document.pdf -check-ocr\n\n", os.Args[0])
 
 		fmt.Fprintf(flag.CommandLine.Output(), "Options:\n")
 		flag.PrintDefaults()
@@ -123,10 +132,87 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "\nExamples:\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  %s -hocr document.hocr -pdf document.pdf -output document_searchable.pdf\n", os.Args[0])
 		fmt.Fprintf(flag.CommandLine.Output(), "  %s -hocr document.hocr -image-dir ./page_images -output document_searchable.pdf\n", os.Args[0])
+		fmt.Fprintf(flag.CommandLine.Output(), "  %s -pdf document.pdf -check-ocr\n", os.Args[0])
 	}
 
 	flag.Parse()
 
+	// Mode for checking OCR
+	if *checkOCR {
+		handleCheckOCRMode(pdfPath, debug, dumpPDF)
+		return // Don't proceed further
+	}
+
+	// Handle normal OCR application mode
+	handleOCRApplicationMode(hocrPath, imageDirPath, pdfPath, pdfOcrPath, startPage,
+		debug, force, strict, overwriteOutput, dumpPDF)
+}
+
+// handleCheckOCRMode handles the OCR detection mode
+func handleCheckOCRMode(pdfPath *string, debug, dumpPDF *bool) {
+	if *pdfPath == "" {
+		fmt.Println("Error: Must provide -pdf for OCR checking")
+		os.Exit(exitError)
+	}
+
+	// Read the input PDF
+	inputData, err := os.ReadFile(*pdfPath)
+	if err != nil {
+		fmt.Printf("Failed to read input PDF: %v\n", err)
+		os.Exit(exitError)
+	}
+
+	// Create a warning writer to capture messages
+	warningCapture := newWarningWriter(os.Stdout)
+
+	// Configure OCR detection
+	config := pdfocr.DefaultConfig()
+	config.Debug = *debug
+	config.DumpPDF = *dumpPDF
+	config.Logger = warningCapture
+
+	// Perform OCR detection
+	ocrResult, err := pdfocr.DetectOCR(inputData, config)
+	if err != nil {
+		fmt.Printf("Error during OCR detection: %v\n", err)
+		os.Exit(exitError)
+	}
+
+	// Display the results
+	fmt.Printf("OCR Detection Results for %s:\n", *pdfPath)
+	fmt.Printf("Has OCR: %v\n", ocrResult.HasOCR)
+
+	if ocrResult.HasLayerOCR && ocrResult.LayerInfo.OCRLayerName != "" {
+		fmt.Printf("OCR Layer: %s\n", ocrResult.LayerInfo.OCRLayerName)
+	}
+
+	if len(ocrResult.LayerInfo.Layers) > 0 {
+		fmt.Println("\nDetected Layers:")
+		for i, layer := range ocrResult.LayerInfo.Layers {
+			fmt.Printf("  %d. %s\n", i+1, layer)
+		}
+	}
+
+	if len(ocrResult.Warnings) > 0 {
+		fmt.Println("\nWarnings:")
+		for _, warning := range ocrResult.Warnings {
+			fmt.Printf("  - %s\n", warning)
+		}
+	}
+
+	// Exit with appropriate code based on OCR detection
+	if ocrResult.HasOCR {
+		os.Exit(exitSuccessWithWarns)
+	} else {
+		os.Exit(exitSuccess)
+	}
+}
+
+// handleOCRApplicationMode handles the main OCR application mode
+func handleOCRApplicationMode(hocrPath, imageDirPath, pdfPath, pdfOcrPath *string, startPage *int,
+	debug, force, strict, overwriteOutput, dumpPDF *bool) {
+
+	// Validate required flags
 	if *hocrPath == "" {
 		fmt.Println("Error: Must provide -hocr path")
 		os.Exit(exitError)
@@ -152,17 +238,13 @@ func main() {
 	warningCapture := newWarningWriter(os.Stdout)
 
 	// Build the OCRConfig
-	config := pdfocr.OCRConfig{
-		Debug:       *debug,
-		Force:       *force,
-		Strict:      *strict,
-		StartPage:   *startPage,
-		DumpPDF:     *dumpPDF,
-		Font:        pdfocr.DefaultFont,
-		LogWarnings: true,
-		LayerName:   "OCR Text",
-		Logger:      warningCapture, // Use our custom writer to track warnings
-	}
+	config := pdfocr.DefaultConfig()
+	config.Debug = *debug
+	config.Force = *force
+	config.Strict = *strict
+	config.StartPage = *startPage
+	config.DumpPDF = *dumpPDF
+	config.Logger = warningCapture
 
 	// Read and parse hOCR
 	hOCR, err := os.ReadFile(*hocrPath)

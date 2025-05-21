@@ -160,6 +160,7 @@ Key features:
 - Position text at the exact location of each recognized word
 - Debug mode to visualize OCR bounding boxes
 - Detect existing OCR layers to prevent duplication
+- Check if a PDF already has OCR without modifying the document
 
 The tool works with hOCR files generated from any OCR system, including those produced by the `gdocai` tool.
 
@@ -171,6 +172,7 @@ The tool works with hOCR files generated from any OCR system, including those pr
 - Use the `-strict` flag to make pdfocr exit with an error if OCR is already present
 - Use the `-force` flag to apply OCR even when an existing layer is detected
 - The `-strict` and `-force` flags can be combined in special cases: if both are specified, `-force` takes precedence, allowing OCR application regardless of detection results
+- The `-check-ocr` flag can be used to only check if a PDF has OCR without applying any changes
 
 ```bash
 # Exit with error if OCR is already present
@@ -181,6 +183,9 @@ pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -force
 
 # Force takes precedence over strict
 pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -strict -force
+
+# Only check if a PDF has OCR without modifying it
+pdfocr -pdf document.pdf -check-ocr
 ```
 
 #### Exit Codes
@@ -207,6 +212,9 @@ pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -debug
 
 # Force reapplication of OCR layer
 pdfocr -hocr document.hocr -pdf document.pdf -output searchable.pdf -force
+
+# Check if a PDF already has OCR
+pdfocr -pdf document.pdf -check-ocr
 ```
 
 ## Packages
